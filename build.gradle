@@ -25,5 +25,7 @@ dependencies {
     compile "org.jetbrains.kotlin:kotlin-stdlib:${KOTLIN_VERSION}"
     compile 'com.squareup.moshi:moshi:1.0.0'
     compile 'com.squareup.okhttp3:okhttp:3.1.2'
+
+    compile "com.sparkjava:spark-core:2.5"
 }
 

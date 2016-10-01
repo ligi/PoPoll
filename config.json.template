@@ -1,5 +1,7 @@
 {
   "apikey": "please_replace_with_valid_apikey",
   "username": "please_replace_with_valid_username",
-  "password": "please_replace_with_valid_password"
+  "password": "please_replace_with_valid_password",
+
+  "minimalreferencechars" : optional_minimal_length_of_reference_chars
 }

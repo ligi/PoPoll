@@ -8,15 +8,23 @@ import popoll.model.Config
 import popoll.model.postbank.Token
 import popoll.model.postbank.iban.Iban
 import popoll.model.postbank.transaction.Transaction
+import popoll.model.server.Error
+import popoll.model.server.Result
 import popoll.util.ConfigParser
+import spark.Spark.get
+import spark.Spark.port
 
 val moshi = Moshi.Builder().build()
+val client = OkHttpClient().newBuilder().build()
+
+val resultAdapter = moshi.adapter<Result>(Result::class.java)
+val errorAdapter = moshi.adapter<Error>(Error::class.java)
+
+val debug = true
 
 fun main(args: Array<String>) {
 
     val config = ConfigParser.parse() ?: return
-
-    val client = OkHttpClient().newBuilder().build()
 
     val tokenRequest = getBaseRequest("token?username=${config.username}&password=${config.password}", config)
             .post(FormBody.Builder().build())
@@ -39,22 +47,69 @@ fun main(args: Array<String>) {
 
     val ibanObject = moshi.adapter<Iban>(Iban::class.java).fromJson(ibanResponse.body().string())
 
-    ibanObject.content.forEach {
-        println("processing IBAN ${it.iban}")
+    println("Got everything we need - starting server")
 
-        val transactionRequest = getBaseRequest("accounts/giro/${it.iban}/transactions", config)
-                .header("x-auth", tokenObject.token)
-                .build()
+    port(4244)
 
-        val execute = client.newCall(transactionRequest).execute()
+    get("/ping", { request, response ->
+        "pong"
+    })
 
-        val transactionObject = moshi.adapter<Transaction>(Transaction::class.java).fromJson(execute.body().string())
+    get("/check", { request, response ->
 
-        transactionObject.content.forEach {
-            println(it)
+        // check parameters
+
+        if (!request.queryParams().contains("fromname")) {
+            return@get errorAdapter.toJson(Error("you need to pass a name from who you expect the transaction ( fromname )"))
         }
 
-    }
+        val fromName = request.queryParams("fromname")!!
+
+        if (!request.queryParams().contains("amount")) {
+            return@get errorAdapter.toJson(Error("you need to pass one amount"))
+        }
+
+        val amount = request.queryParams("amount")!!
+
+        if (!request.queryParams().contains("reference")) {
+            return@get errorAdapter.toJson(Error("you need to pass a reference"))
+        }
+
+        val reference = request.queryParams("reference")!!
+
+        ibanObject.content.forEach {
+            println("processing IBAN ${it.iban}")
+
+            val transactionRequest = getBaseRequest("accounts/giro/${it.iban}/transactions", config)
+                    .header("x-auth", tokenObject.token)
+                    .build()
+
+            val execute = client.newCall(transactionRequest).execute()
+
+            val transactionObject = moshi.adapter<Transaction>(Transaction::class.java).fromJson(execute.body().string())
+
+            transactionObject.content.forEach {
+
+                if (it.reference.paymentName.toUpperCase().equals(fromName.toUpperCase())
+                        && it.amount.equals(amount) && findInPurpose(it.purpose, reference)) {
+
+                    return@get resultAdapter.toJson(Result("found"))
+                }
+
+                if (debug) {
+                    println(" not matching: $it")
+                }
+            }
+        }
+
+        return@get resultAdapter.toJson(Result("notfound"))
+    })
+
+
+}
+
+fun findInPurpose(purpose: Array<String>, reference: String): Boolean {
+    return purpose.any { it.toUpperCase().contains(reference.toUpperCase()) }
 }
 
 private fun getBaseRequest(path: String, config: Config): Request.Builder {
